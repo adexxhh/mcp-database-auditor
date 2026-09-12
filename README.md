@@ -27,6 +27,16 @@ graph TD
 
 ---
 
+## 🔎 MCP Inspector Real-Time Security Verification
+
+![Deterministic AST guardrail intercepting and neutralizing unauthorized DDL/destructive SQL mutations in real time](docs/assets/mcp_inspector_input.png)
+
+![Deterministic AST guardrail intercepting and neutralizing unauthorized DDL/destructive SQL mutations in real time](docs/assets/mcp_inspector_rejection.png)
+
+*Deterministic AST guardrail intercepting and neutralizing unauthorized DDL/destructive SQL mutations in real time.*
+
+---
+
 ## ✨ Features Across All Phases
 
 ### Phase 1: Deterministic SQL Guardrail & AST Validator (`security/guardrail.py`)
