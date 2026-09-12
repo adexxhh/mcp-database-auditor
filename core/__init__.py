@@ -10,6 +10,13 @@ from core.database import (
     ForeignKeyEdge,
     RelationshipGraph,
 )
+from core.profiler import (
+    AuditProfiler,
+    AuditReport,
+    ColumnProfile,
+    OutlierDetail,
+    PerformanceMetrics,
+)
 
 __all__ = [
     "DatabaseEngine",
@@ -22,4 +29,9 @@ __all__ = [
     "TableSchema",
     "ForeignKeyEdge",
     "RelationshipGraph",
+    "AuditProfiler",
+    "AuditReport",
+    "ColumnProfile",
+    "OutlierDetail",
+    "PerformanceMetrics",
 ]
