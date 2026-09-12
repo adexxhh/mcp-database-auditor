@@ -1,0 +1,4 @@
+# Development & Evaluation Dependencies
+-r requirements.txt
+pytest>=8.0.0
+pytest-asyncio>=1.4.0

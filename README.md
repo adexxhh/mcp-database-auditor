@@ -86,6 +86,7 @@ cd mcp-database-auditor
 python -m venv .venv
 .\.venv\Scripts\activate  # Windows (or source .venv/bin/activate on Linux/macOS)
 pip install -e .
+# Alternatively: pip install -r requirements.txt
 ```
 
 ### 2. Seed Mock Database
