@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "mcp-database-auditor": {
+      "command": "python",
+      "args": [
+        "C:/Users/Asus/.gemini/antigravity/scratch/mcp-database-auditor/server.py"
+      ],
+      "env": {
+        "DATABASE_URL": "sqlite+aiosqlite:///C:/Users/Asus/.gemini/antigravity/scratch/mcp-database-auditor/demo_saas.db"
+      }
+    }
+  }
+}

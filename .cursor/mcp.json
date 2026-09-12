@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "mcp-database-auditor": {
+      "command": "python",
+      "args": [
+        "server.py"
+      ],
+      "env": {
+        "DATABASE_URL": "sqlite+aiosqlite:///demo_saas.db"
+      }
+    }
+  }
+}

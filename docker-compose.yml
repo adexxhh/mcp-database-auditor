@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: audit_postgres
+    environment:
+      POSTGRES_USER: auditor
+      POSTGRES_PASSWORD: audit_password
+      POSTGRES_DB: audit_db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auditor -d audit_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mcp-auditor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mcp_database_auditor
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://auditor:audit_password@postgres:5432/audit_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
