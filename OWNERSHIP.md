@@ -54,6 +54,6 @@ The scope is a database tool server. It does not train a model, authenticate ent
 - Re-run benchmark.py and report hardware, fixture, repetitions and percentiles.
 
 ## Verification and limits
-58 CPU tests passed; real stdio integration passed. A PostgreSQL integration test is present but skipped locally because no server/Docker is available. CI provisions a disposable PostgreSQL service; it has not run remotely as part of these local commits. SSE is for trusted local use. There is no OS sandbox, tenant authorization, representative large-table profiling or centralized durable audit store.
+58 CPU tests passed; real stdio integration passed. A PostgreSQL integration test is present but skipped locally because no server/Docker is available. CI provisioned a disposable PostgreSQL service and its pooled read-only integration job passed; docs/evidence/github-actions.json records the immutable run. SSE is for trusted local use. There is no OS sandbox, tenant authorization, representative large-table profiling or centralized durable audit store.
 
 Do not call this enterprise production-ready or describe the SQLite timing as PostgreSQL performance. Those are future verification and engineering tasks.

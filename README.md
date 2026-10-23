@@ -45,7 +45,7 @@ Reproduce: python benchmark.py --repeats 30 --output benchmark-results.json.
 
 ## PostgreSQL
 Compose provisions a separate SELECT-only reader and owner. Run docker compose up --build, set TEST_POSTGRES_URL to the disposable reader URL from docker-compose.yml, then run python -m pytest tests/test_postgres_integration.py -q.
-CI provisions PostgreSQL separately. **Docker/PostgreSQL were not available on the repair host; this path remains unverified until run.**
+CI provisions PostgreSQL separately. **The real PostgreSQL CI service job passed. Docker Compose deployment remains unverified on the repair host.**
 
 ## Boundaries
 - Local/trusted use only; SSE has no user/tenant authentication.
@@ -67,6 +67,8 @@ Regenerate: install requirements-demo.txt, then run python scripts/render_demo.p
 
 ## Linux service verification
 
-[CPU Colab notebook](scripts/colab_service_checks.ipynb) installs disposable PostgreSQL and Redis services and runs the auditor plus editor service checks from remaining-projects-source.zip. The notebook is prepared; its Linux service run remains unverified on this Windows host.
+[CPU Colab notebook](scripts/colab_service_checks.ipynb) installs disposable PostgreSQL and Redis services and runs the auditor plus editor service checks from remaining-projects-source.zip. The notebook is an optional reproduction path; real PostgreSQL and Redis checks passed separately in GitHub Actions.
 
 [Continuation handoff](HANDOFF.md) records verified work, pending checks, the active Colab run and recovery steps.
+
+Verified [GitHub Actions run](https://github.com/adexxhh/mcp-database-auditor/actions/runs/39961281678) passed. Job and step evidence is saved in [github-actions.json](docs/evidence/github-actions.json).
