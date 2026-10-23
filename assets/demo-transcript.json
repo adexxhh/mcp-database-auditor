@@ -1,0 +1,17 @@
+{
+  "kind": "condensed terminal replay from real runs",
+  "commands": [
+    {
+      "command": "python -m scripts.demo_scenario",
+      "exit_code": 0,
+      "stdout": "MCP tools: SQL inspection, profiling, query plans, schema snapshots\nReflected tables: audit_events, invoices, tenants, transactions, users\nRead-only query: PASS\nNested DELETE rejected: PASS\nReal SQLite planner: ['SCAN users']\nSchema baseline: {\"baseline_created\": true, \"tables\": [\"audit_events\", \"invoices\", \"tenants\", \"transactions\", \"users\"]}\nRepeat schema diff: {\"added\": [], \"removed\": [], \"changed\": []}\nAudit entries: 1\n",
+      "stderr": ""
+    },
+    {
+      "command": "python -m pytest -q --disable-warnings",
+      "exit_code": 0,
+      "stdout": ".................................s.........................              [100%]\n58 passed, 1 skipped in 2.74s\n",
+      "stderr": ""
+    }
+  ]
+}

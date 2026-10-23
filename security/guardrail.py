@@ -88,7 +88,7 @@ class SQLGuardrail:
             exp.Grant,
             exp.Command,
         )
-        if isinstance(root, disallowed_types):
+        if any(isinstance(node, disallowed_types) for node in root.walk()):
             cmd_name = root.key.upper() if hasattr(root, "key") and root.key else root.__class__.__name__
             raise DisallowedCommandException(f"Disallowed SQL command: {cmd_name}")
 
@@ -97,6 +97,25 @@ class SQLGuardrail:
             raise DisallowedCommandException(
                 f"Statement type '{root.__class__.__name__}' is not allowed. Query must be a SELECT statement."
             )
+
+        # SELECT roots can still contain writes, row locks, or side-effecting functions.
+        if root.find(exp.Into) or root.find(exp.Lock):
+            raise DisallowedCommandException("SELECT INTO and locking clauses are not allowed.")
+        allowed_functions = {
+            "abs", "avg", "cast", "ceil", "ceiling", "coalesce", "concat", "count",
+            "date", "date_trunc", "extract", "floor", "greatest", "least", "length",
+            "lower", "max", "min", "nullif", "round", "row_number", "sum", "upper",
+            "lag", "lead", "rank", "dense_rank", "substring", "trim", "current_date",
+            "current_timestamp", "and", "or", "exists", "json_extract", "json_extract_scalar", "j_s_o_n_b_contains_top_key"
+        }
+        for node in root.find_all(exp.Func):
+            name = node.name.lower() if isinstance(node, exp.Anonymous) else node.sql_name().lower()
+            if name not in allowed_functions:
+                raise DisallowedCommandException(f"Function '{name}' is not allowlisted.")
+        for offset in root.find_all(exp.Offset):
+            value = offset.expression
+            if not isinstance(value, exp.Literal) or not value.is_int or int(value.this) < 0:
+                raise UnsafeQueryException("OFFSET must be a non-negative integer literal.")
 
         # Strip all inline SQL comments (-- and /* */)
         for node in root.walk():
@@ -115,10 +134,12 @@ class SQLGuardrail:
                 else:
                     val = int(str(val_expr))
 
+                if val < 0:
+                    raise UnsafeQueryException("LIMIT must not be negative.")
                 if val > self.max_limit:
                     limit_node.set("expression", exp.Literal.number(self.max_limit))
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as exc:
+                raise UnsafeQueryException("LIMIT must be a bounded integer literal.") from exc
 
         return root.sql(dialect=self.dialect)
 

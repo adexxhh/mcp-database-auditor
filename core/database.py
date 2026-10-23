@@ -3,6 +3,7 @@ Sandboxed Database Connection Engine & Dynamic Schema Reflection using SQLAlchem
 """
 
 import asyncio
+import time
 from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel, Field
 import sqlalchemy as sa
@@ -113,17 +114,15 @@ class DatabaseEngine:
                 cursor = dbapi_connection.cursor()
                 try:
                     cursor.execute("PRAGMA query_only = ON;")
+                    async def install_progress(driver):
+                        deadline = [None]
+                        def progress():
+                            return int(deadline[0] is not None and time.monotonic() > deadline[0])
+                        await driver.set_progress_handler(progress, 1000)
+                        driver._audit_deadline = deadline
+                    dbapi_connection.run_async(install_progress)
                 finally:
                     cursor.close()
-        elif "postgresql" in self.db_url:
-            @event.listens_for(sync_engine, "connect")
-            def set_pg_readonly(dbapi_connection, connection_record):
-                cursor = dbapi_connection.cursor()
-                try:
-                    cursor.execute("SET TRANSACTION READ ONLY;")
-                finally:
-                    cursor.close()
-
     async def inspect_schema(self) -> RelationshipGraph:
         """
         Programmatically introspects all tables, columns, primary keys,
@@ -203,7 +202,9 @@ class DatabaseEngine:
 
             return RelationshipGraph(tables=tables_dict, foreign_key_edges=edges)
 
-        async with self.engine.connect() as conn:
+        async with self.engine.begin() as conn:
+            if self.read_only and conn.dialect.name == "postgresql":
+                await conn.execute(text("SET TRANSACTION READ ONLY"))
             return await conn.run_sync(_sync_inspect)
 
     async def execute_query(self, sql_query: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
@@ -219,7 +220,14 @@ class DatabaseEngine:
             DatabaseEngineException: For other execution errors.
         """
         async def _run():
-            async with self.engine.connect() as conn:
+            async with self.engine.begin() as conn:
+                if self.read_only and conn.dialect.name == "postgresql":
+                    await conn.execute(text("SET TRANSACTION READ ONLY"))
+                if conn.dialect.name == "sqlite":
+                    raw = await conn.get_raw_connection()
+                    deadline = getattr(raw.driver_connection, "_audit_deadline", None)
+                    if deadline is not None:
+                        deadline[0] = time.monotonic() + self.statement_timeout
                 result = await conn.execute(text(sql_query), params or {})
                 if result.returns_rows:
                     mappings = result.mappings().all()
@@ -234,6 +242,8 @@ class DatabaseEngine:
             ) from exc
         except sa.exc.OperationalError as exc:
             err_msg = str(exc).lower()
+            if "interrupted" in err_msg or "statement timeout" in err_msg:
+                raise QueryTimeoutException("Database interrupted query at the statement deadline.") from exc
             if "readonly" in err_msg or "read-only" in err_msg or "cannot execute" in err_msg:
                 raise ReadOnlyViolationException(f"Write operation rejected in read-only sandbox: {exc}") from exc
             raise DatabaseEngineException(f"Database operational error: {exc}") from exc

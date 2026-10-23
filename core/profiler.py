@@ -5,6 +5,7 @@ Analytical Data Profiler and Markdown/JSON Report Generator.
 from datetime import datetime, timezone
 import json
 import math
+from decimal import Decimal
 import sys
 from typing import Any, Dict, List, Optional, Sequence, Union
 from pydantic import BaseModel, Field
@@ -126,7 +127,7 @@ class AuditProfiler:
             null_count = total_rows - len(non_null_vals)
             null_rate = round(null_count / total_rows, 4) if total_rows > 0 else 0.0
 
-            unique_count = len(set(raw_vals))
+            unique_count = len({json.dumps(v, sort_keys=True, default=str) for v in raw_vals})
             cardinality_ratio = round(unique_count / total_rows, 4) if total_rows > 0 else 0.0
 
             # Key column detection & null check warning
@@ -141,7 +142,7 @@ class AuditProfiler:
             # Check if numeric for outlier and statistical analysis
             numeric_items: List[Tuple[int, float]] = []
             for idx, val in enumerate(raw_vals):
-                if isinstance(val, (int, float)) and not isinstance(val, bool):
+                if isinstance(val, (int, float, Decimal)) and not isinstance(val, bool):
                     numeric_items.append((idx, float(val)))
 
             min_val, max_val, mean_val, std_dev = None, None, None, None

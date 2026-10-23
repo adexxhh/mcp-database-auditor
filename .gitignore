@@ -10,3 +10,7 @@ build/
 htmlcov/
 *.db
 
+
+audit.jsonl
+*.egg-info/
+artifacts/

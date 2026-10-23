@@ -9,6 +9,11 @@ import asyncio
 import os
 import sys
 import time
+import json
+import hashlib
+import logging
+import sqlglot
+from sqlglot import exp
 from typing import Any, Dict, List, Optional
 
 from mcp.server.fastmcp import FastMCP, Context
@@ -47,7 +52,7 @@ def get_db_url() -> str:
     
     db_file = os.path.abspath(DEFAULT_DB_FILE)
     if not os.path.exists(db_file):
-        asyncio.run(seed_demo_database(f"sqlite+aiosqlite:///{db_file}"))
+        raise RuntimeError("Demo DB missing; run python scripts/seed_demo_db.py before starting the server.")
     
     return f"sqlite+aiosqlite:///{db_file}"
 
@@ -64,6 +69,29 @@ def get_engine() -> DatabaseEngine:
 # ============================================================================
 # MCP TOOLS
 # ============================================================================
+
+_initialization_lock = asyncio.Lock()
+_previous_schema = None
+
+async def ensure_database():
+    if not os.getenv("DATABASE_URL") and not os.path.exists(os.path.abspath(DEFAULT_DB_FILE)):
+        async with _initialization_lock:
+            if not os.path.exists(os.path.abspath(DEFAULT_DB_FILE)):
+                await seed_demo_database()
+
+def record_audit(sql, outcome, duration_ms=None):
+    tree = sqlglot.parse_one(sql, read="postgres")
+    for literal in list(tree.find_all(exp.Literal)):
+        literal.replace(exp.Placeholder())
+    normalized = tree.sql(dialect="postgres", normalize=True)
+    entry = {
+        "timestamp": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+        "fingerprint": hashlib.sha256(normalized.encode()).hexdigest(),
+        "outcome": outcome, "execution_time_ms": duration_ms
+    }
+    path = os.getenv("AUDIT_LOG_PATH", "audit.jsonl")
+    with open(path, "a", encoding="utf-8") as stream:
+        stream.write(json.dumps(entry) + "\n")
 
 @mcp.tool()
 async def execute_safe_query(sql: str) -> str:
@@ -82,13 +110,17 @@ async def execute_safe_query(sql: str) -> str:
         validated_sql = _guardrail.validate_and_transform(sql)
 
         # 2. Measure & Execute Query in Read-Only Sandbox
+        await ensure_database()
         engine = get_engine()
         start_time = time.perf_counter()
         rows = await engine.execute_query(validated_sql)
         duration_ms = (time.perf_counter() - start_time) * 1000.0
 
         if not rows:
+            record_audit(validated_sql, "executed", duration_ms)
             return f"### Query Result\n*Query executed successfully in {duration_ms:.2f} ms but returned 0 rows.*\n\n**Validated Query**:\n```sql\n{validated_sql}\n```"
+
+        record_audit(validated_sql, "executed", duration_ms)
 
         # Format as Markdown Table
         headers = list(rows[0].keys())
@@ -141,6 +173,7 @@ async def profile_table(table_name: str) -> str:
         sql = f"SELECT * FROM {clean_table}"
         validated_sql = _guardrail.validate_and_transform(sql)
 
+        await ensure_database()
         engine = get_engine()
         start_time = time.perf_counter()
         rows = await engine.execute_query(validated_sql)
@@ -152,7 +185,7 @@ async def profile_table(table_name: str) -> str:
             execution_time_ms=duration_ms,
         )
 
-        return _profiler.to_markdown(report)
+        return "> Sample profile: first 100 returned rows, not a whole-table audit.\n\n" + _profiler.to_markdown(report)
 
     except Exception as exc:
         return f"❌ **PROFILER ERROR**: Failed to profile table '{table_name}': {exc}"
@@ -168,6 +201,7 @@ async def get_database_health() -> str:
         Markdown database health summary report.
     """
     try:
+        await ensure_database()
         engine = get_engine()
         graph: RelationshipGraph = await engine.inspect_schema()
 
@@ -178,7 +212,7 @@ async def get_database_health() -> str:
         for tname, tbl in graph.tables.items():
             indexed_cols = set()
             for idx in tbl.indexes:
-                indexed_cols.update(idx.column_names)
+                indexed_cols.update(idx.column_names[:1])
 
             for fk in tbl.foreign_keys:
                 for c in fk.constrained_columns:
@@ -219,13 +253,54 @@ async def get_database_health() -> str:
 
 # ============================================================================
 # MCP RESOURCES
+
 # ============================================================================
+
+@mcp.tool()
+async def analyze_query_plan(sql: str) -> str:
+    """Report planner-selected full scans. A full scan can be optimal; this does not block it."""
+    validated = _guardrail.validate(sql)
+    await ensure_database()
+    engine = get_engine()
+    dialect = engine.engine.dialect.name
+    prefix = "EXPLAIN (FORMAT JSON) " if dialect == "postgresql" else "EXPLAIN QUERY PLAN "
+    plan = await engine.execute_query(prefix + validated)
+    full_scans = []
+    def inspect(value):
+        if isinstance(value, dict):
+            if value.get("Node Type") == "Seq Scan":
+                full_scans.append(value.get("Relation Name", "unknown"))
+            if "SCAN " in str(value.get("detail", "")).upper() and "USING INDEX" not in str(value.get("detail", "")).upper():
+                full_scans.append(value["detail"])
+            for child in value.values(): inspect(child)
+        elif isinstance(value, list):
+            for child in value: inspect(child)
+    inspect(plan)
+    return json.dumps({"dialect": dialect, "full_scan_candidates": full_scans, "plan": plan,
+                       "caveat":"Planner estimates only; full scans can be optimal for small tables."}, default=str)
+
+@mcp.tool()
+async def schema_changes() -> str:
+    """Compare current schema with the previous in-process snapshot; first call establishes baseline."""
+    global _previous_schema
+    await ensure_database()
+    current = (await get_engine().inspect_schema()).model_dump(mode="json")["tables"]
+    previous = _previous_schema
+    _previous_schema = current
+    if previous is None:
+        return json.dumps({"baseline_created": True, "tables": sorted(current)})
+    return json.dumps({
+        "added": sorted(current.keys() - previous.keys()),
+        "removed": sorted(previous.keys() - current.keys()),
+        "changed": sorted(k for k in current.keys() & previous.keys() if current[k] != previous[k])
+    })
 
 @mcp.resource("schema://current")
 async def get_current_schema() -> str:
     """
     Read-only JSON resource exposing the full live database relationship graph.
     """
+    await ensure_database()
     engine = get_engine()
     graph: RelationshipGraph = await engine.inspect_schema()
     return graph.model_dump_json(indent=2)
@@ -237,6 +312,7 @@ async def get_table_schema(table_name: str) -> str:
     Read-only JSON resource returning DDL and schema context for an individual table.
     """
     clean_table = table_name.strip().strip("`\"'")
+    await ensure_database()
     engine = get_engine()
     graph: RelationshipGraph = await engine.inspect_schema()
 

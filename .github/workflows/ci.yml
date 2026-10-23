@@ -1,0 +1,36 @@
+name: Database regression checks
+on: [push, pull_request]
+jobs:
+  sqlite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -e ".[dev]"
+      - run: python -m pytest -q
+      - run: python client_test.py
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test_admin
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: audit_db
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test_admin -d audit_db"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -e ".[dev]"
+      - run: PGPASSWORD=test_password psql -h localhost -U test_admin -d audit_db -f postgres/init.sql
+      - run: python -m pytest tests/test_postgres_integration.py -q
+        env:
+          TEST_POSTGRES_URL: postgresql+asyncpg://audit_reader:audit_readonly@localhost:5432/audit_db
