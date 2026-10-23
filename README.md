@@ -64,3 +64,9 @@ These assets are condensed terminal replays rendered from actual subprocess outp
 Regenerate: install requirements-demo.txt, then run python scripts/render_demo.py.
 
 [Engineering changes and ownership exercises](OWNERSHIP.md)
+
+## Linux service verification
+
+[CPU Colab notebook](scripts/colab_service_checks.ipynb) installs disposable PostgreSQL and Redis services and runs the auditor plus editor service checks from remaining-projects-source.zip. The notebook is prepared; its Linux service run remains unverified on this Windows host.
+
+[Continuation handoff](HANDOFF.md) records verified work, pending checks, the active Colab run and recovery steps.

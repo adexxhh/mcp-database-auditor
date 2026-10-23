@@ -14,3 +14,8 @@ htmlcov/
 audit.jsonl
 *.egg-info/
 artifacts/
+
+.env
+.env.local
+.ipynb_checkpoints/
+checkpoints/
