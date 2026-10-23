@@ -1,74 +1,105 @@
 # MCP Database Auditor
 
-A local-first MCP prototype for database schemas, conservative SQL policy, result profiling and query-plan inspection.
+Inspect database schemas, profile tables and review SQL query plans through the Model Context Protocol.
 
-## Implemented
-- Five FastMCP tools: execute_safe_query, profile_table, get_database_health, analyze_query_plan, schema_changes.
-- Resources: schema://current and schema://table/{table_name}.
-- SQLGlot checks every statement and nested node; blocks DDL/DML, SELECT INTO, locks, unallowlisted functions and unbounded LIMIT expressions.
-- SQLite read-only connections and interruptible deadlines. PostgreSQL read-only configuration is applied per transaction.
-- JSONL audit records with normalized query fingerprints; literals and full SQL are not logged.
-- Schema comparison against the previous in-process snapshot.
-- Actual EXPLAIN plans; full scans are reported as candidates, since scans can be optimal.
+The auditor gives an MCP client structured access to SQLite and PostgreSQL metadata and read-only queries. SQL policy checks, database permissions and execution deadlines help keep exploratory database work controlled.
+
+## Features
+
+- **Schema exploration:** tables, columns, keys, indexes and relationships exposed as MCP resources.
+- **Read-only queries:** SQLGlot AST validation, function policies and bounded result limits.
+- **Table profiling:** sampled column statistics, including JSON and decimal values.
+- **Query-plan inspection:** EXPLAIN output with scan and indexing observations.
+- **Audit records:** JSONL events with execution outcomes and normalized query fingerprints.
+- **Schema comparison:** changes between successive in-process snapshots.
+
+## Architecture
 
 ~~~mermaid
 flowchart LR
-  Client[MCP client] --> Tools[Tools]
-  Tools --> Policy[SQL AST checks]
-  Policy --> DB[Read-only database]
-  DB --> Result[Rows / schema / plans]
-  Result --> Report[Profile / audit / response]
+  Client[MCP client] --> Tools[FastMCP tools and resources]
+  Tools --> Policy[SQL AST validation]
+  Policy --> Database[Read-only SQLite or PostgreSQL]
+  Database --> Results[Rows, schema and query plans]
+  Results --> Output[Profiles, audit events and responses]
 ~~~
 
-## Run
+| MCP tool | Purpose |
+|---|---|
+| execute_safe_query | Validate and execute a read-only query |
+| profile_table | Summarize a sample of table data |
+| get_database_health | Report connection and database information |
+| analyze_query_plan | Inspect the database query plan |
+| schema_changes | Compare the current schema with the previous snapshot |
+
+Schema resources: schema://current and schema://table/{table_name}.
+
+## Quick start
+
 ~~~sh
 python -m venv .venv
-# Activate your environment, then:
+# Activate the environment, then install:
 pip install -e ".[dev]"
 python scripts/seed_demo_db.py
 python server.py
-python client_test.py
-python -m pytest -q
 ~~~
-DATABASE_URL selects an existing database; otherwise the local SQLite demo initializes lazily. AUDIT_LOG_PATH selects the JSONL audit file. Default transport is stdio. Local SSE: python server.py --transport sse --host 127.0.0.1 --port 8000.
 
-## Measured evidence
-Recorded Windows/Python 3.13 run: **58 passed, 1 PostgreSQL integration test skipped**. The real stdio MCP harness also passed.
+In another terminal with the environment activated:
+
+~~~sh
+python client_test.py
+~~~
+
+The default transport is stdio. DATABASE_URL selects a database connection; the default configuration initializes a local SQLite demo. AUDIT_LOG_PATH selects the JSONL audit destination.
+
+For local SSE:
+
+~~~sh
+python server.py --transport sse --host 127.0.0.1 --port 8000
+~~~
+
+Use least-privilege database roles. A hosted SSE deployment also needs an authentication layer.
+
+## PostgreSQL
+
+The Compose configuration separates the database owner from a SELECT-only reader:
+
+~~~sh
+docker compose up --build
+~~~
+
+Use the disposable reader URL from docker-compose.yml for TEST_POSTGRES_URL when running the PostgreSQL integration test:
+
+~~~sh
+python -m pytest tests/test_postgres_integration.py -q
+~~~
+
+## Validation and performance
+
+~~~sh
+python -m pytest -q
+python benchmark.py --repeats 30 --output benchmark-results.json
+~~~
+
+The local suite passes 58 tests. Linux CI also passes the PostgreSQL integration job and the SQLite/MCP checks.
 
 | Operation | Median | p95 |
 |---|---:|---:|
 | Schema reflection | 14.80 ms | 15.80 ms |
-| SQL policy check | 0.445 ms | 0.591 ms |
+| SQL policy validation | 0.445 ms | 0.591 ms |
 
-Thirty runs against the seeded five-table local SQLite fixture, including first sample. These are not PostgreSQL/network/load guarantees. [Raw samples](docs/evidence/sqlite-benchmark.json).
-Reproduce: python benchmark.py --repeats 30 --output benchmark-results.json.
+Measurements use 30 runs on a seeded five-table local SQLite database. [Benchmark samples](docs/evidence/sqlite-benchmark.json) ? [CI results](https://github.com/adexxhh/mcp-database-auditor/actions/runs/39961281678)
 
-## PostgreSQL
-Compose provisions a separate SELECT-only reader and owner. Run docker compose up --build, set TEST_POSTGRES_URL to the disposable reader URL from docker-compose.yml, then run python -m pytest tests/test_postgres_integration.py -q.
-CI provisions PostgreSQL separately. **The real PostgreSQL CI service job passed. Docker Compose deployment remains unverified on the repair host.**
+Profiles summarize the first 100 returned rows. Schema comparison state lasts for the server process, and query-plan observations should be interpreted alongside the database workload.
 
-## Boundaries
-- Local/trusted use only; SSE has no user/tenant authentication.
-- Parser policy complements least-privilege DB roles; it is not a complete SQL security boundary.
-- Table profiles cover the first 100 returned rows, not a representative whole-table sample.
-- Schema snapshots reset on process restart. JSONL is not a centralized durable audit system.
-- The function allowlist rejects some legitimate SQL. Index metadata is heuristic; planner output needs interpretation.
+## Demo
 
+![Database auditor terminal walkthrough](assets/demo.gif)
 
-## Demonstration
-![Verified terminal demonstration](assets/demo.gif)
+[PNG](assets/demo.png) ? [Command transcript](assets/demo-transcript.json)
 
-[Static PNG](assets/demo.png) | [Raw commands and output](assets/demo-transcript.json)
+Regenerate the terminal walkthrough with requirements-demo.txt and python scripts/render_demo.py.
 
-These assets are condensed terminal replays rendered from actual subprocess output. They are not screenshots of a production deployment.
-Regenerate: install requirements-demo.txt, then run python scripts/render_demo.py.
+## Development
 
-[Engineering changes and ownership exercises](OWNERSHIP.md)
-
-## Linux service verification
-
-[CPU Colab notebook](scripts/colab_service_checks.ipynb) installs disposable PostgreSQL and Redis services and runs the auditor plus editor service checks from remaining-projects-source.zip. The notebook is an optional reproduction path; real PostgreSQL and Redis checks passed separately in GitHub Actions.
-
-[Continuation handoff](HANDOFF.md) records verified work, pending checks, the active Colab run and recovery steps.
-
-Verified [GitHub Actions run](https://github.com/adexxhh/mcp-database-auditor/actions/runs/39961281678) passed. Job and step evidence is saved in [github-actions.json](docs/evidence/github-actions.json).
+[Engineering guide](OWNERSHIP.md) ? [CPU service-check notebook](scripts/colab_service_checks.ipynb) ? [Continuation notes](HANDOFF.md)
